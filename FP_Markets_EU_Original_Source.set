@@ -1,0 +1,42 @@
+; AlphaX Vision - Original attached Pine calculation defaults, with FP Markets clock alignment
+; Target MT5 chart: XAUUSD.cy, M1. Select the chart/timeframe manually.
+; This preset resets calculation/data options; appearance and alert delivery are retained.
+; US DST is inferred from FP Markets New York-close documentation.
+; Tick volume and broker-midnight VWAP are starting choices, pending TradingView feed validation.
+InpFusionLength=122
+InpSlowSensitivity=12
+InpFastSensitivity=5
+InpShowCloud=true
+InpShowEmaFast=true
+InpShowEmaMedium=true
+InpShowEmaSlow=true
+InpEmaFastLength=21
+InpEmaMediumLength=55
+InpEmaSlowLength=120
+InpFastWprPeriod=21
+InpSlowWprPeriod=55
+InpTurtleWprPeriod=120
+InpOversold=-90
+InpOverbought=-10
+InpTrendLookback=20
+InpMinConfidence=14
+InpEnableTrendGate=true
+InpStrictGate=true
+InpUptrendTurtle=-35
+InpUptrendSlow=-40
+InpDowntrendTurtle=-65
+InpDowntrendSlow=-60
+InpRequireRecovery=true
+InpRecoveryBars=3
+InpRecoveryMove=6
+InpCooldown=25
+InpAtrOffset=2.4
+InpLabelSize=1
+InpEnableDateFilter=false
+InpBrokerClock=2
+InpWinterUtcOffsetMinutes=120
+InpVolume=0
+InpVwapAnchor=0
+InpVwapUtcStartHour=0
+InpVwapUtcStartMinute=0
+InpCalculationStartUTC=0

@@ -1,0 +1,14 @@
+test_blank_and_numeric_mismatch (test_compare_exports.ExportComparisonTests.test_blank_and_numeric_mismatch) ... ok
+test_duplicate_timestamps_rejected (test_compare_exports.ExportComparisonTests.test_duplicate_timestamps_rejected) ... ok
+test_input_difference_reported (test_compare_exports.ExportComparisonTests.test_input_difference_reported) ... ok
+test_iso_and_millisecond_timestamps (test_compare_exports.ExportComparisonTests.test_iso_and_millisecond_timestamps) ... ok
+test_matching_data_and_missing_numeric_values (test_compare_exports.ExportComparisonTests.test_matching_data_and_missing_numeric_values) ... ok
+test_missing_diagnostic_rejected (test_compare_exports.ExportComparisonTests.test_missing_diagnostic_rejected) ... ok
+test_naive_iso_rejected (test_compare_exports.ExportComparisonTests.test_naive_iso_rejected) ... ok
+test_no_overlap_does_not_pass (test_compare_exports.ExportComparisonTests.test_no_overlap_does_not_pass) ... ok
+test_signal_difference_is_exact (test_compare_exports.ExportComparisonTests.test_signal_difference_is_exact) ... ok
+
+----------------------------------------------------------------------
+Ran 9 tests in 0.047s
+
+OK

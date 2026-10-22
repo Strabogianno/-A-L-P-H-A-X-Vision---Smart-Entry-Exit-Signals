@@ -1,0 +1,666 @@
+// © AlphaX
+//@version=6
+indicator("AlphaX Vision – Trend Engine with Smart Entry Exit Signals", shorttitle="AlphaX Vision", overlay=true, max_labels_count=500, max_bars_back=500)
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// ═══════════════════════════ USER INPUTS ═══════════════════════════════════════
+// ═══════════════════════════════════════════════════════════════════════════════
+
+// ── Fusion System ──────────────────────────────────────────────────────────────
+fusionLength  = input.int(122,   "Fusion MA Length",        minval=7,   maxval=200, group="Fusion System")
+sens1         = input.int(12,   "Fusion Slow Sensitivity", minval=3,   maxval=20,  group="Fusion System")
+sens2         = input.int(5,    "Fusion Fast Sensitivity", minval=2,   maxval=15,  group="Fusion System")
+showCloud     = input.bool(true,"Show Trend Cloud",                                group="Fusion System")
+
+// ── EMA Settings ───────────────────────────────────────────────────────────────
+showEmaFast     = input.bool(true,  "Show Fast EMA",    group="EMA Settings")
+showEmaMedium   = input.bool(true,  "Show Medium EMA",  group="EMA Settings")
+showEmaSlow     = input.bool(true,  "Show Slow EMA",    group="EMA Settings")
+emaFastLength   = input.int(21,  "Fast EMA Length",   minval=1, maxval=500, group="EMA Settings")
+emaMediumLength = input.int(55,  "Medium EMA Length", minval=1, maxval=500, group="EMA Settings")
+emaSlowLength   = input.int(120, "Slow EMA Length",   minval=1, maxval=500, group="EMA Settings")
+
+// ── AlphaX Pro Settings ────────────────────────────────────────────────────────
+fastWPR_period   = input.int(21,  "Fast WPR Period",        minval=3,   maxval=24,  group="AlphaX Pro Settings")
+slowWPR_period   = input.int(55,  "Slow WPR Period",        minval=15,  maxval=60,  group="AlphaX Pro Settings")
+turtleWPR_period = input.int(120, "Turtle WPR Period",      minval=100, maxval=500, group="AlphaX Pro Settings")
+oversold_level   = input.int(-90, "Oversold Level",         minval=-99, maxval=-70, group="AlphaX Pro Settings")
+overbought_level = input.int(-10, "Overbought Level",       minval=-30, maxval=-1,  group="AlphaX Pro Settings")
+proTrendLookback = input.int(20,  "Trend Detection Period", minval=10,  maxval=50,  group="AlphaX Pro Settings")
+minProConfidence = input.float(14,"Min Pro Confidence %",   minval=0,   maxval=100, step=5, group="AlphaX Pro Settings")
+enableProTrendGate      = input.bool(true,  "Enable Trend Alignment Gate",          group="AlphaX Pro Settings")
+proTrendGateStrict      = input.bool(true,  "Strict Mode (Stronger Filter)",        group="AlphaX Pro Settings")
+proUptrendTurtleLevel   = input.float(-35,  "Uptrend: Turtle WPR Above",  minval=-50, maxval=-10, step=1, group="AlphaX Pro Settings")
+proUptrendSlowLevel     = input.float(-40,  "Uptrend: Slow WPR Above",    minval=-60, maxval=-20, step=1, group="AlphaX Pro Settings")
+proDowntrendTurtleLevel = input.float(-65,  "Downtrend: Turtle WPR Below",minval=-90, maxval=-50, step=1, group="AlphaX Pro Settings")
+proDowntrendSlowLevel   = input.float(-60,  "Downtrend: Slow WPR Below",  minval=-80, maxval=-40, step=1, group="AlphaX Pro Settings")
+enableProRecoveryReq    = input.bool(true,  "Require WPR Recovery (Counter-Trend)", group="AlphaX Pro Settings")
+proRecoveryBars         = input.int(3,   "Recovery Lookback (bars)", minval=2, maxval=10,  group="AlphaX Pro Settings")
+proRecoveryMinMove      = input.float(6, "Minimum Recovery Move",    minval=2, maxval=20, step=1, group="AlphaX Pro Settings")
+
+
+// ── Trend Filters ──────────────────────────────────────────────────────────────
+trendCooldown      = input.int(25, "Trend Label Cooldown (bars)", minval=1, maxval=50, group="Trend Filters")
+signalAtrOffset    = input.float(2.4, "Signal ATR Offset", minval=0.0, maxval=10.0, step=0.1, group="Trend Filters")
+signalLabelSizeStr = input.string("small", "Signal Label Size", options=["tiny","small","normal"], group="Trend Filters")
+
+// ── Date Filter ────────────────────────────────────────────────────────────────
+enableDateFilter = input.bool(false,   "Enable Date Filter",  group="Date Filter")
+startDate        = input.time(timestamp("2026-03-20 00:00 +0000"), "Start Date", group="Date Filter")
+endDate          = input.time(timestamp("2026-03-21 23:59 +0000"), "End Date",   group="Date Filter")
+
+inDateRange = not enableDateFilter or (time >= startDate and time <= endDate)
+
+// ── Theme Colors ───────────────────────────────────────────────────────────────
+color BULL_PRIMARY    = input.color(#c8e624, "Bull Primary Color",    group="Theme")
+color BULL_BRIGHT     = input.color(#d4f03a, "Bull Bright Color",     group="Theme")
+color BULL_DIM        = input.color(#9ab81c, "Bull Dim Color",        group="Theme")
+color BEAR_PRIMARY    = input.color(#ff1744, "Bear Primary Color",    group="Theme")
+color BEAR_BRIGHT     = input.color(#ff5252, "Bear Bright Color",     group="Theme")
+color BEAR_DIM        = input.color(#d50032, "Bear Dim Color",        group="Theme")
+color NEUTRAL_COLOR   = input.color(#555555, "Neutral / Inactive",    group="Theme")
+color EMA_FAST_CLR    = input.color(#c8e624, "Fast EMA Color",        group="Theme")
+color EMA_MED_CLR     = input.color(#888888, "Medium EMA Color",      group="Theme")
+color EMA_SLOW_CLR    = input.color(#555555, "Slow EMA Color",        group="Theme")
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// ═══════════════════════════ EXPONENTIAL MOVING AVERAGES ═══════════════════════
+// ═══════════════════════════════════════════════════════════════════════════════
+
+emaFast   = ta.ema(close, emaFastLength)
+emaMedium = ta.ema(close, emaMediumLength)
+emaSlow   = ta.ema(close, emaSlowLength)
+
+plot(showEmaFast   ? emaFast   : na, "Fast EMA",   color=EMA_FAST_CLR, linewidth=1, style=plot.style_cross)
+plot(showEmaMedium ? emaMedium : na, "Medium EMA",  color=EMA_MED_CLR,  linewidth=1, style=plot.style_line)
+plot(showEmaSlow   ? emaSlow   : na, "Slow EMA",    color=EMA_SLOW_CLR, linewidth=2, style=plot.style_line)
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// ═══════════════════════════ FUSION SYSTEM ═════════════════════════════════════
+// ═══════════════════════════════════════════════════════════════════════════════
+
+emaVal   = ta.ema(close, fusionLength)
+smaVal   = ta.sma(close, fusionLength)
+wmaVal   = ta.wma(close, fusionLength)
+almaVal  = ta.alma(close, fusionLength, 0.85, 6.0)
+vwapVal  = ta.vwap(hlc3)
+
+rawFusion  = (emaVal + smaVal + wmaVal + almaVal + vwapVal) / 5
+fusionSlow = ta.ema(rawFusion, sens1)
+fusionFast = ta.ema(rawFusion, sens2)
+
+slopeUp       = fusionSlow > fusionSlow[1]
+slopeDown     = fusionSlow < fusionSlow[1]
+slopeFastUp   = fusionFast > fusionFast[1]
+slopeFastDown = fusionFast < fusionFast[1]
+
+bullishCondition = close > fusionSlow and slopeUp
+bearishCondition = close < fusionSlow and slopeDown
+neutralCondition = not bullishCondition and not bearishCondition
+
+fusionAlignedBull = fusionFast > fusionSlow
+fusionAlignedBear = fusionFast < fusionSlow
+
+// ── Fusion Line Colors ─────────────────────────────────────────────────────────
+fusionLineColor = bullishCondition ? BULL_PRIMARY :
+  bearishCondition ? BEAR_PRIMARY : NEUTRAL_COLOR
+cloudBaseColor  = fusionFast > fusionSlow ? BULL_PRIMARY :
+  fusionFast < fusionSlow ? BEAR_PRIMARY : NEUTRAL_COLOR
+
+// ── Gradient Cloud ─────────────────────────────────────────────────────────────
+fusionSlowPlot = plot(fusionSlow, "Fusion Slow", color=fusionLineColor, linewidth=2)
+fusionFastPlot = plot(fusionFast, "Fusion Fast", color=fusionLineColor, linewidth=1)
+
+distance   = close - fusionSlow
+gradLevel1 = fusionSlow + distance * 0.20
+gradLevel2 = fusionSlow + distance * 0.40
+gradLevel3 = fusionSlow + distance * 0.60
+gradLevel4 = fusionSlow + distance * 0.80
+
+pricePlot = plot(close,      "Price",      display=display.none)
+grad1Plot = plot(gradLevel1, "Gradient 1", display=display.none)
+grad2Plot = plot(gradLevel2, "Gradient 2", display=display.none)
+grad3Plot = plot(gradLevel3, "Gradient 3", display=display.none)
+grad4Plot = plot(gradLevel4, "Gradient 4", display=display.none)
+
+cBull = bullishCondition
+cBear = bearishCondition
+
+fill(fusionSlowPlot, fusionFastPlot,
+  color=showCloud ? color.new(cloudBaseColor, 65) : na, title="Main Cloud")
+fill(fusionSlowPlot, grad1Plot,
+  color=showCloud ? (cBull ? color.new(BULL_PRIMARY, 72) : cBear ? color.new(BEAR_PRIMARY, 72) : na) : na,
+  title="Cloud Layer 1")
+fill(grad1Plot, grad2Plot,
+  color=showCloud ? (cBull ? color.new(BULL_PRIMARY, 80) : cBear ? color.new(BEAR_PRIMARY, 80) : na) : na,
+  title="Cloud Layer 2")
+fill(grad2Plot, grad3Plot,
+  color=showCloud ? (cBull ? color.new(BULL_DIM, 86) : cBear ? color.new(BEAR_DIM, 86) : na) : na,
+  title="Cloud Layer 3")
+fill(grad3Plot, grad4Plot,
+  color=showCloud ? (cBull ? color.new(BULL_DIM, 91) : cBear ? color.new(BEAR_DIM, 91) : na) : na,
+  title="Cloud Layer 4")
+fill(grad4Plot, pricePlot,
+  color=showCloud ? (cBull ? color.new(BULL_DIM, 95) : cBear ? color.new(BEAR_DIM, 95) : na) : na,
+  title="Cloud Layer 5")
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// ═══════════════════════════ FUSION CONFIDENCE SCORING ═════════════════════════
+// ═══════════════════════════════════════════════════════════════════════════════
+
+rsiVal       = ta.rsi(close, 14)
+rsiEma       = ta.ema(rsiVal, 7)
+rsiSlopeUp   = rsiEma > rsiEma[1] and rsiEma > rsiEma[2]
+rsiSlopeDown = rsiEma < rsiEma[1] and rsiEma < rsiEma[2]
+
+[macdLine, signalLine, histLine] = ta.macd(close, 12, 26, 9)
+macdBullish      = macdLine > signalLine
+macdBearish      = macdLine < signalLine
+macdMomentumUp   = histLine > histLine[1]
+macdMomentumDown = histLine < histLine[1]
+
+stochK       = ta.stoch(close, high, low, 14)
+stochD       = ta.sma(stochK, 3)
+stochBullish = stochK > stochD
+stochBearish = stochK < stochD
+
+higherHigh = high > high[1] and high[1] > high[2]
+lowerLow   = low  < low[1]  and low[1]  < low[2]
+higherLow  = low  > low[1]
+lowerHigh  = high < high[1]
+
+strongBullClose = close > (high + low) / 2 and close > open
+strongBearClose = close < (high + low) / 2 and close < open
+
+emaMediumSlopeUp   = emaMedium > emaMedium[1]
+emaMediumSlopeDown = emaMedium < emaMedium[1]
+emasAlignedBull    = emaMedium > emaSlow
+emasAlignedBear    = emaMedium < emaSlow
+
+bullF1 = close > fusionSlow and close > fusionFast ? 1 : 0
+bullF2 = fusionAlignedBull ? 1 : 0
+bullF3 = slopeUp and slopeFastUp ? 1 : 0
+bullF4 = close > emaMedium and emaMediumSlopeUp ? 1 : 0
+bullF5 = close > emaSlow or emasAlignedBull ? 1 : 0
+bullF6 = macdBullish and macdMomentumUp ? 1 : 0
+bullF7 = rsiEma > 45 and rsiEma < 75 and rsiSlopeUp ? 1 : 0
+bullF8 = stochBullish and stochK > 30 ? 1 : 0
+bullF9 = strongBullClose and (higherLow or higherHigh) ? 1 : 0
+bullFusionScore = bullF1 + bullF2 + bullF3 + bullF4 + bullF5 + bullF6 + bullF7 + bullF8 + bullF9
+
+bearF1 = close < fusionSlow and close < fusionFast ? 1 : 0
+bearF2 = fusionAlignedBear ? 1 : 0
+bearF3 = slopeDown and slopeFastDown ? 1 : 0
+bearF4 = close < emaMedium and emaMediumSlopeDown ? 1 : 0
+bearF5 = close < emaSlow or emasAlignedBear ? 1 : 0
+bearF6 = macdBearish and macdMomentumDown ? 1 : 0
+bearF7 = rsiEma < 55 and rsiEma > 25 and rsiSlopeDown ? 1 : 0
+bearF8 = stochBearish and stochK < 70 ? 1 : 0
+bearF9 = strongBearClose and (lowerHigh or lowerLow) ? 1 : 0
+bearFusionScore = bearF1 + bearF2 + bearF3 + bearF4 + bearF5 + bearF6 + bearF7 + bearF8 + bearF9
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// ═══════════════════════════ FUSION TREND CHANGE DETECTION ═════════════════════
+// ═══════════════════════════════════════════════════════════════════════════════
+
+wasBullish = bullishCondition[1]
+wasBearish = bearishCondition[1]
+wasNeutral = neutralCondition[1]
+
+colorChangedToGreen  = bullishCondition and (wasBearish or wasNeutral)
+colorChangedToPurple = bearishCondition and (wasBullish or wasNeutral)
+
+var int lastTrendLabelBar  = 0
+var int lastTrendDirection = 0
+
+bullCooldownOK = (lastTrendDirection != 1) or
+  ((bar_index - lastTrendLabelBar) >= trendCooldown)
+bearCooldownOK = (lastTrendDirection != -1) or
+  ((bar_index - lastTrendLabelBar) >= trendCooldown)
+
+fusionBullSignal = colorChangedToGreen  and bullCooldownOK
+fusionBearSignal = colorChangedToPurple and bearCooldownOK
+
+if fusionBullSignal
+    lastTrendLabelBar  := bar_index
+    lastTrendDirection := 1
+
+if fusionBearSignal
+    lastTrendLabelBar  := bar_index
+    lastTrendDirection := -1
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// ═══════════════════════════ ALPHAX PRO – WPR CALCULATIONS ═════════════════════
+// ═══════════════════════════════════════════════════════════════════════════════
+
+fastWPR   = ta.wpr(fastWPR_period)
+slowWPR   = ta.wpr(slowWPR_period)
+turtleWPR = ta.wpr(turtleWPR_period)
+
+proEma200        = ta.ema(close, 200)
+proEma50         = ta.ema(close, 50)
+proPriceAboveEma = close > proEma200
+proPriceBelowEma = close < proEma200
+proEmaBullish    = proEma50 > proEma200
+proEmaBearish    = proEma50 < proEma200
+
+proRsi = ta.rsi(close, 14)
+
+avgVolume          = ta.sma(volume, 20)
+proVolumeStrength  = volume / avgVolume
+proLowVolume       = proVolumeStrength < 0.7
+
+proCurrentHour      = hour(time, "UTC")
+proIsAsianSession   = proCurrentHour >= 0  and proCurrentHour < 8
+proIsLondonSession  = proCurrentHour >= 8  and proCurrentHour < 13
+proIsOverlapSession = proCurrentHour >= 13 and proCurrentHour < 17
+proIsNyAfternoon    = proCurrentHour >= 17 and proCurrentHour < 21
+proIsNyClose        = proCurrentHour >= 21 and proCurrentHour < 24
+proSessionQuality   = proIsOverlapSession ? 100 :
+  proIsLondonSession ? 85 :
+  proIsNyAfternoon ? 60 :
+  proIsAsianSession ? 30 : 40
+
+proSlowSlope   = (slowWPR - slowWPR[proTrendLookback]) / proTrendLookback
+proTurtleSlope = (turtleWPR - turtleWPR[proTrendLookback]) / proTrendLookback
+
+proSlowTrendingUp     = proSlowSlope   >  0.3
+proSlowTrendingDown   = proSlowSlope   < -0.3
+proTurtleTrendingUp   = proTurtleSlope >  0.15
+proTurtleTrendingDown = proTurtleSlope < -0.15
+
+proVeryStrongUptrend   = turtleWPR > -30 and slowWPR > -40
+proStrongUptrend       = turtleWPR > -40 and slowWPR > -50
+proModerateUptrend     = turtleWPR > -55 and slowWPR > -60
+proVeryStrongDowntrend = turtleWPR < -70 and slowWPR < -60
+proStrongDowntrend     = turtleWPR < -60 and slowWPR < -50
+proModerateDowntrend   = turtleWPR < -45 and slowWPR < -40
+
+proFastVelocity = fastWPR - fastWPR[1]
+
+proVelocityBase = proIsOverlapSession ? 1.0 :
+  proIsLondonSession ? 0.9 :
+  proIsNyAfternoon ? 0.8 :
+  proIsAsianSession ? 0.5 : 0.6
+proVelocityWeakThreshold    = 3  * proVelocityBase
+proVelocityIdealMin         = 5  * proVelocityBase
+proVelocityIdealMax         = 30 * proVelocityBase
+proVelocityStrongThreshold  = 35 * proVelocityBase
+proVelocityExtremeThreshold = 45 * proVelocityBase
+
+absVel = math.abs(proFastVelocity)
+proVelocityQuality = absVel >= proVelocityIdealMin and absVel <= proVelocityIdealMax ? "IDEAL" :
+  absVel > proVelocityIdealMax and absVel <= proVelocityStrongThreshold ? "STRONG" :
+  absVel > proVelocityStrongThreshold ? "EXTREME" : "WEAK"
+
+proFastCrossesUp   = ta.crossover(fastWPR,  oversold_level)
+proFastCrossesDown = ta.crossunder(fastWPR, overbought_level)
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// ═══════════════════════════ ALPHAX PRO – DIVERGENCE ═══════════════════════════
+// ═══════════════════════════════════════════════════════════════════════════════
+
+proPivotLookback  = 5
+proPivotLowPrice  = ta.pivotlow(low,   proPivotLookback, proPivotLookback)
+proPivotHighPrice = ta.pivothigh(high, proPivotLookback, proPivotLookback)
+
+var float proPrevPivotLowPrice  = na
+var float proPrevPivotLowWpr    = na
+var int   proPrevPivotLowBar    = na
+var float proPrevPivotHighPrice = na
+var float proPrevPivotHighWpr   = na
+var int   proPrevPivotHighBar   = na
+var float proCurrPivotLowPrice  = na
+var float proCurrPivotLowWpr    = na
+var int   proCurrPivotLowBar    = na
+var float proCurrPivotHighPrice = na
+var float proCurrPivotHighWpr   = na
+var int   proCurrPivotHighBar   = na
+
+if not na(proPivotLowPrice)
+    proPrevPivotLowPrice := proCurrPivotLowPrice
+    proPrevPivotLowWpr   := proCurrPivotLowWpr
+    proPrevPivotLowBar   := proCurrPivotLowBar
+    proCurrPivotLowPrice := proPivotLowPrice
+    proCurrPivotLowWpr   := fastWPR[proPivotLookback]
+    proCurrPivotLowBar   := bar_index - proPivotLookback
+
+if not na(proPivotHighPrice)
+    proPrevPivotHighPrice := proCurrPivotHighPrice
+    proPrevPivotHighWpr   := proCurrPivotHighWpr
+    proPrevPivotHighBar   := proCurrPivotHighBar
+    proCurrPivotHighPrice := proPivotHighPrice
+    proCurrPivotHighWpr   := fastWPR[proPivotLookback]
+    proCurrPivotHighBar   := bar_index - proPivotLookback
+
+proBullishDivergence = not na(proPrevPivotLowPrice) and
+  not na(proCurrPivotLowPrice) and
+  not na(proPrevPivotLowWpr) and
+  not na(proCurrPivotLowWpr) and
+  proCurrPivotLowPrice < proPrevPivotLowPrice and
+  proCurrPivotLowWpr > proPrevPivotLowWpr and
+  bar_index - proCurrPivotLowBar <= 3 and
+  proCurrPivotLowBar - proPrevPivotLowBar <= 50 and
+  proCurrPivotLowBar - proPrevPivotLowBar >= 5
+
+proBearishDivergence = not na(proPrevPivotHighPrice) and
+  not na(proCurrPivotHighPrice) and
+  not na(proPrevPivotHighWpr) and
+  not na(proCurrPivotHighWpr) and
+  proCurrPivotHighPrice > proPrevPivotHighPrice and
+  proCurrPivotHighWpr < proPrevPivotHighWpr and
+  bar_index - proCurrPivotHighBar <= 3 and
+  proCurrPivotHighBar - proPrevPivotHighBar <= 50 and
+  proCurrPivotHighBar - proPrevPivotHighBar >= 5
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// ═══════════════════════════ ALPHAX PRO – SIGNAL TRIGGERS ══════════════════════
+// ═══════════════════════════════════════════════════════════════════════════════
+
+proDivergenceBuyTrigger = proBullishDivergence and
+  proFastVelocity > proVelocityWeakThreshold
+proDivergenceSellTrigger = proBearishDivergence and
+  proFastVelocity < -proVelocityWeakThreshold
+
+proExtremeSnapBuy = fastWPR[1] < -88 and
+  proFastVelocity > proVelocityWeakThreshold and
+  (turtleWPR > -65 or slowWPR > -65) and proFastCrossesUp
+proExtremeSnapSell = fastWPR[1] > -12 and
+  proFastVelocity < -proVelocityWeakThreshold and
+  (turtleWPR < -35 or slowWPR < -35) and proFastCrossesDown
+
+proExhaustionBuy = fastWPR[1] < -78 and
+  (turtleWPR > -75 or slowWPR > -70) and
+  proFastVelocity > proVelocityWeakThreshold and proFastCrossesUp
+proExhaustionSell = fastWPR[1] > -22 and
+  (turtleWPR < -25 or slowWPR < -30) and
+  proFastVelocity < -proVelocityWeakThreshold and proFastCrossesDown
+
+proBuyContinuation = proFastCrossesUp and
+  (proVeryStrongUptrend or proStrongUptrend) and
+  (proSlowTrendingUp or proTurtleTrendingUp)
+proSellContinuation = proFastCrossesDown and
+  (proVeryStrongDowntrend or proStrongDowntrend) and
+  (proSlowTrendingDown or proTurtleTrendingDown)
+
+proBuyPullback = proFastCrossesUp and
+  (proModerateUptrend or slowWPR > -60) and
+  proFastVelocity > proVelocityWeakThreshold
+proSellPullback = proFastCrossesDown and
+  (proModerateDowntrend or slowWPR < -40) and
+  proFastVelocity < -proVelocityWeakThreshold
+
+proAllOversold   = fastWPR < -78 and slowWPR < -68 and turtleWPR < -60
+proAllOverbought = fastWPR > -22 and slowWPR > -32 and turtleWPR > -40
+
+proTripleBuy = proAllOversold and
+  proFastVelocity > proVelocityWeakThreshold and proFastCrossesUp
+proTripleSell = proAllOverbought and
+  proFastVelocity < -proVelocityWeakThreshold and proFastCrossesDown
+
+proBuySignalCount = (proDivergenceBuyTrigger ? 1 : 0) +
+  (proExtremeSnapBuy ? 1 : 0) +
+  (proExhaustionBuy ? 1 : 0) +
+  (proBuyContinuation ? 1 : 0) +
+  (proBuyPullback ? 1 : 0) +
+  (proTripleBuy ? 1 : 0)
+proSellSignalCount = (proDivergenceSellTrigger ? 1 : 0) +
+  (proExtremeSnapSell ? 1 : 0) +
+  (proExhaustionSell ? 1 : 0) +
+  (proSellContinuation ? 1 : 0) +
+  (proSellPullback ? 1 : 0) +
+  (proTripleSell ? 1 : 0)
+
+proStackingBonusBuy = proBuySignalCount >= 3 ? 15 :
+  proBuySignalCount >= 2 ? 8 : 0
+proStackingBonusSell = proSellSignalCount >= 3 ? 15 :
+  proSellSignalCount >= 2 ? 8 : 0
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// ═══════════════════════════ ALPHAX PRO – CONFIDENCE ═══════════════════════════
+// ═══════════════════════════════════════════════════════════════════════════════
+
+calcProBuyConfidence() =>
+    float c = 0.0
+    c += turtleWPR > -35 ? 25.0 :
+      turtleWPR > -45 ? 20.0 :
+      turtleWPR > -55 ? 12.0 :
+      turtleWPR > -65 ? 5.0 : 0.0
+    c += fastWPR < -94 ? 20.0 :
+      fastWPR < -90 ? 16.0 :
+      fastWPR < -85 ? 12.0 :
+      fastWPR < -80 ? 6.0 : 0.0
+    c += proTripleBuy ? 20.0 :
+      proBuyContinuation ? 18.0 :
+      proDivergenceBuyTrigger ? 17.0 :
+      proExtremeSnapBuy ? 14.0 :
+      proExhaustionBuy ? 11.0 :
+      proBuyPullback ? 8.0 : 0.0
+    c += proVelocityQuality == "IDEAL" ? 15.0 :
+      proVelocityQuality == "STRONG" ? 10.0 :
+      proVelocityQuality == "EXTREME" ? 3.0 : 6.0
+    c += proSessionQuality / 10.0
+    c += proPriceAboveEma and proEmaBullish ? 5.0 :
+      proPriceAboveEma ? 2.0 : 0.0
+    c += proStackingBonusBuy
+    c -= absVel > proVelocityExtremeThreshold ? 10.0 :
+      absVel > proVelocityStrongThreshold ? 5.0 : 0.0
+    c -= proRsi > 72 ? 8.0 : proRsi > 65 ? 3.0 : 0.0
+    c -= proIsAsianSession ? 10.0 : proIsNyClose ? 5.0 : 0.0
+    c -= proLowVolume ? 5.0 : 0.0
+    math.max(0.0, math.min(100.0, c))
+
+calcProSellConfidence() =>
+    float c = 0.0
+    c += turtleWPR < -65 ? 25.0 :
+      turtleWPR < -55 ? 20.0 :
+      turtleWPR < -45 ? 12.0 :
+      turtleWPR < -35 ? 5.0 : 0.0
+    c += fastWPR > -6 ? 20.0 :
+      fastWPR > -10 ? 16.0 :
+      fastWPR > -15 ? 12.0 :
+      fastWPR > -20 ? 6.0 : 0.0
+    c += proTripleSell ? 20.0 :
+      proSellContinuation ? 18.0 :
+      proDivergenceSellTrigger ? 17.0 :
+      proExtremeSnapSell ? 14.0 :
+      proExhaustionSell ? 11.0 :
+      proSellPullback ? 8.0 : 0.0
+    c += proVelocityQuality == "IDEAL" ? 15.0 :
+      proVelocityQuality == "STRONG" ? 10.0 :
+      proVelocityQuality == "EXTREME" ? 3.0 : 6.0
+    c += proSessionQuality / 10.0
+    c += proPriceBelowEma and proEmaBearish ? 5.0 :
+      proPriceBelowEma ? 2.0 : 0.0
+    c += proStackingBonusSell
+    c -= absVel > proVelocityExtremeThreshold ? 10.0 :
+      absVel > proVelocityStrongThreshold ? 5.0 : 0.0
+    c -= proRsi < 28 ? 8.0 : proRsi < 35 ? 3.0 : 0.0
+    c -= proIsAsianSession ? 10.0 : proIsNyClose ? 5.0 : 0.0
+    c -= proLowVolume ? 5.0 : 0.0
+    math.max(0.0, math.min(100.0, c))
+
+proBuyConfidence  = calcProBuyConfidence()
+proSellConfidence = calcProSellConfidence()
+
+proAnyBuySignal = proDivergenceBuyTrigger or proExtremeSnapBuy or
+  proExhaustionBuy or proBuyContinuation or
+  proBuyPullback or proTripleBuy
+proAnySellSignal = proDivergenceSellTrigger or proExtremeSnapSell or
+  proExhaustionSell or proSellContinuation or
+  proSellPullback or proTripleSell
+
+proValidBuySignal  = proAnyBuySignal  and proBuyConfidence  >= minProConfidence
+proValidSellSignal = proAnySellSignal and proSellConfidence >= minProConfidence
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// ═══════════════════════════ PRO TREND ALIGNMENT GATE ══════════════════════════
+// ═══════════════════════════════════════════════════════════════════════════════
+
+float adjUptrendTurtle = proTrendGateStrict ?
+  proUptrendTurtleLevel + 5 : proUptrendTurtleLevel
+float adjUptrendSlow = proTrendGateStrict ?
+  proUptrendSlowLevel + 5 : proUptrendSlowLevel
+float adjDowntrendTurtle = proTrendGateStrict ?
+  proDowntrendTurtleLevel - 5 : proDowntrendTurtleLevel
+float adjDowntrendSlow = proTrendGateStrict ?
+  proDowntrendSlowLevel - 5 : proDowntrendSlowLevel
+
+bool proStrongUptrendDetected = turtleWPR > adjUptrendTurtle and
+  slowWPR > adjUptrendSlow
+bool proStrongDowntrendDetected = turtleWPR < adjDowntrendTurtle and
+  slowWPR < adjDowntrendSlow
+
+float fastWprLowest  = ta.lowest(fastWPR,  proRecoveryBars + 1)
+float fastWprHighest = ta.highest(fastWPR, proRecoveryBars + 1)
+
+bool bullRecoveryDetected = fastWPR > fastWprLowest + proRecoveryMinMove and
+  fastWprLowest < -80
+bool bearRecoveryDetected = fastWPR < fastWprHighest - proRecoveryMinMove and
+  fastWprHighest > -20
+
+bool proTrendGateBullPass = true
+bool proTrendGateBearPass = true
+
+if enableProTrendGate
+    if proStrongDowntrendDetected
+        proTrendGateBullPass := enableProRecoveryReq ? bullRecoveryDetected : false
+    if proStrongUptrendDetected
+        proTrendGateBearPass := enableProRecoveryReq ? bearRecoveryDetected : false
+
+bool proGatedBuySignal  = proValidBuySignal  and proTrendGateBullPass
+bool proGatedSellSignal = proValidSellSignal and proTrendGateBearPass
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// ═══════════════════════════ TREND STATE & SIGNAL LOGIC ════════════════════════
+// ═══════════════════════════════════════════════════════════════════════════════
+
+var int  currentTrend   = 0
+var bool hasEntrySignal = false
+
+if fusionBullSignal
+    currentTrend   := 1
+    hasEntrySignal := false
+
+if fusionBearSignal
+    currentTrend   := -1
+    hasEntrySignal := false
+
+bool doBullEntry = currentTrend ==  1 and proGatedBuySignal  and inDateRange
+bool doBearEntry = currentTrend == -1 and proGatedSellSignal and inDateRange
+bool doBullExit  = currentTrend ==  1 and proGatedSellSignal and hasEntrySignal and inDateRange
+bool doBearExit  = currentTrend == -1 and proGatedBuySignal  and hasEntrySignal and inDateRange
+
+if doBullEntry or doBearEntry
+    hasEntrySignal := true
+
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// ═══════════════════════════ ATR OFFSET & SIZE RESOLVER ════════════════════════
+// ═══════════════════════════════════════════════════════════════════════════════
+
+atrVal       = ta.atr(14)
+atrOffset    = atrVal * signalAtrOffset
+signalSize   = signalLabelSizeStr == "normal" ? size.huge :
+  signalLabelSizeStr == "small" ? size.large : size.normal
+
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// ═══════════════════════════ PLOTTING ══════════════════════════════════════════
+// ═══════════════════════════════════════════════════════════════════════════════
+
+// ── Fusion Trend Change Labels (compact, professional) ─────────────────────────
+if fusionBullSignal
+    label.new(bar_index, low,
+      text      = " B U L L ",
+      yloc      = yloc.belowbar,
+      color     = color.new(BULL_PRIMARY, 15),
+      textcolor = #1a1a1a,
+      size      = size.tiny,
+      style     = label.style_label_up)
+
+if fusionBearSignal
+    label.new(bar_index, high,
+      text      = " B E A R ",
+      yloc      = yloc.abovebar,
+      color     = color.new(BEAR_PRIMARY, 15),
+      textcolor = #ffffff,
+      size      = size.tiny,
+      style     = label.style_label_down)
+
+// ── Re-Entry Triangles with ATR offset + dotted connector line ────────────────
+if doBullEntry
+    float triY = low - atrOffset
+    label.new(bar_index, triY,
+      text      = "▲",
+      color     = color.new(BULL_BRIGHT, 0),
+      textcolor = BULL_BRIGHT,
+      style     = label.style_none,
+      size      = signalSize)
+    line.new(bar_index, low, bar_index, triY + atrOffset * 0.15,
+      color  = color.new(BULL_BRIGHT, 50),
+      width  = 1,
+      style  = line.style_dotted)
+
+if doBearEntry
+    float triY = high + atrOffset
+    label.new(bar_index, triY,
+      text      = "▼",
+      color     = color.new(BEAR_BRIGHT, 0),
+      textcolor = BEAR_BRIGHT,
+      style     = label.style_none,
+      size      = signalSize)
+    line.new(bar_index, high, bar_index, triY - atrOffset * 0.15,
+      color  = color.new(BEAR_BRIGHT, 50),
+      width  = 1,
+      style  = line.style_dotted)
+
+// ── Exit X Marks with ATR offset + dotted connector line ─────────────────────
+if doBullExit
+    float exitY = high + atrOffset
+    label.new(bar_index, exitY,
+      text      = "✕",
+      color     = color.new(NEUTRAL_COLOR, 0),
+      textcolor = NEUTRAL_COLOR,
+      style     = label.style_none,
+      size      = signalSize)
+    line.new(bar_index, high, bar_index, exitY - atrOffset * 0.15,
+      color  = color.new(NEUTRAL_COLOR, 60),
+      width  = 1,
+      style  = line.style_dotted)
+
+if doBearExit
+    float exitY = low - atrOffset
+    label.new(bar_index, exitY,
+      text      = "✕",
+      color     = color.new(NEUTRAL_COLOR, 0),
+      textcolor = NEUTRAL_COLOR,
+      style     = label.style_none,
+      size      = signalSize)
+    line.new(bar_index, low, bar_index, exitY + atrOffset * 0.15,
+      color  = color.new(NEUTRAL_COLOR, 60),
+      width  = 1,
+      style  = line.style_dotted)
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// ═══════════════════════════ ALERT CONDITIONS ══════════════════════════════════
+// ═══════════════════════════════════════════════════════════════════════════════
+
+alertcondition(fusionBullSignal,
+  title="Fusion → Bull Trend",
+  message="AlphaX Vision: BULL trend ({{ticker}} {{interval}})")
+alertcondition(fusionBearSignal,
+  title="Fusion → Bear Trend",
+  message="AlphaX Vision: BEAR trend ({{ticker}} {{interval}})")
+alertcondition(doBullEntry,
+  title="Re-Entry Long",
+  message="AlphaX Vision: Re-entry LONG ({{ticker}} {{interval}})")
+alertcondition(doBearEntry,
+  title="Re-Entry Short",
+  message="AlphaX Vision: Re-entry SHORT ({{ticker}} {{interval}})")
+alertcondition(doBullExit,
+  title="Exit Long",
+  message="AlphaX Vision: EXIT long ({{ticker}} {{interval}})")
+alertcondition(doBearExit,
+  title="Exit Short",
+  message="AlphaX Vision: EXIT short ({{ticker}} {{interval}})")

@@ -1,0 +1,7 @@
+; AlphaX Vision - FP Markets time alignment, 22 October 2026
+; Partial preset: changes broker clock settings only.
+; FP Markets documents GMT+2/+3 to follow New York close.
+; US DST is inferred from New York alignment; verify against the actual server.
+; Winter offset 120 minutes; summer offset 180 minutes.
+InpBrokerClock=2
+InpWinterUtcOffsetMinutes=120

@@ -1,0 +1,7 @@
+{
+  "test": "shared-source execution policy",
+  "runtime": ".NET (not MT5)",
+  "passed": true,
+  "output": "passed=9058 failed=0",
+  "stderr": ""
+}

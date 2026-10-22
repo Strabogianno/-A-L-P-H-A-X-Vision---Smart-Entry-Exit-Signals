@@ -1,0 +1,4 @@
+IE	2	19:30:49.075	Tester	tester not started because the account is not specified
+GR	2	19:30:49.075	Terminal	tester didn't start
+LK	0	19:30:50.746	Terminal	exit with code -1000012353
+RQ	0	19:30:50.937	Terminal	shutdown with -1000012353 (tester not started because the account is not specified)
